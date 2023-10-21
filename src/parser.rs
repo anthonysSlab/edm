@@ -1,6 +1,14 @@
 use crate::log;
 
-type Range = (usize, Option<usize>);
+type RegexMatch = String;
+
+pub enum Range {
+    Single(usize),         // 6
+    Bounded(usize, usize), // 6..9
+    Start(usize),          // 6..
+    End(usize),            // ..9
+    None,
+}
 
 pub enum Command {
     Write(Option<String>),
@@ -9,7 +17,8 @@ pub enum Command {
     ForceQuit,
 
     Insert,
-    Delete(Option<Range>),
+    Delete(Range),
+    Change(Range, /* Option<RegexMatch>, */ Option<String>),
 
     Print,
     Line,
@@ -34,6 +43,14 @@ pub fn parse_command(input: &str) -> Option<Command> {
             1 => return Some(Command::WriteQuit(None)),
             2 => return Some(Command::WriteQuit(Some(args[1].to_string()))),
             _ => (),
+        },
+
+        "c" => {
+            if args.len() == 1 {
+                return Some(Command::Change(range, None));
+            }
+
+            return Some(Command::Change(range, Some(String::from(&rest[1..]))));
         },
 
         _ => (),
@@ -63,11 +80,11 @@ pub fn parse_command(input: &str) -> Option<Command> {
     }
 }
 
-fn parse_range(input: &str) -> Result<(Option<Range>, &str), ()> {
+fn parse_range(input: &str) -> Result<(Range, &str), ()> {
     let (range, rest) = split_string(input);
 
     let Some(range) = range else {
-        return Ok((None, rest));
+        return Ok((Range::None, rest));
     };
 
     let Some((start, end)) = range.split_once(',') else {
@@ -75,7 +92,7 @@ fn parse_range(input: &str) -> Result<(Option<Range>, &str), ()> {
             log!(ERROR, "Invalid range");
             return Err(());
         };
-        return Ok((Some((range, Some(range))), rest));
+        return Ok((Range::Single(range), rest));
     };
 
     match start {
@@ -87,7 +104,7 @@ fn parse_range(input: &str) -> Result<(Option<Range>, &str), ()> {
             let Ok(end) = end.parse::<usize>() else {
                 log!(ERROR, "Invalid range");
                 return Err(());
-            }; Ok((Some((1, Some(end))), rest))
+            }; Ok((Range::End(end), rest))
         },
         
         _ if end.is_empty() => {
@@ -96,7 +113,7 @@ fn parse_range(input: &str) -> Result<(Option<Range>, &str), ()> {
                 return Err(());
             };
 
-            Ok((Some((start, None)), rest))
+            Ok((Range::Start(start), rest))
         },
 
         _ => {
@@ -108,7 +125,7 @@ fn parse_range(input: &str) -> Result<(Option<Range>, &str), ()> {
             let Ok(end) = end.parse::<usize>() else {
                 log!(ERROR, "Invalid range");
                 return Err(());
-            }; Ok((Some((start, Some(end))), rest))
+            }; Ok((Range::Bounded(start, end), rest))
         },
     }
 }

@@ -8,7 +8,6 @@ mod init;
 mod print;
 mod parser;
 
-
 fn main() {
     let mut main_buffer = init::init();
 
@@ -33,8 +32,11 @@ fn main() {
             continue;
         };
 
-        use parser::Command::*;
+        use parser::{Range, Command::*};
         match cmd {
+            Print => print::lines_enumerated(&main_buffer),
+            Line => println!("{}", current_line),
+
             Quit => {
                 if is_saved { exit(0); }
                 log!(WARN, "No write since last change");
@@ -69,47 +71,65 @@ fn main() {
             },
 
             Insert => {
-                let mut buffer = Vec::new();
-                loop {
-                    let line = get_line_from(&mut tty);
-                    if line == ".\n" { break; }
-                    buffer.push(line);
-                }
-
-                let len = buffer.len();
-                main_buffer.splice(current_line-1..current_line, buffer);
+                let lines = get_from_prompt(&mut tty);
+                let len = lines.len();
+                main_buffer.splice(current_line-1..current_line, lines);
                 current_line += len;
                 is_saved = false;
             },
 
-            Print => print::lines_enumerated(&main_buffer),
+            Delete(range) => {
+                let range = match range {
+                    Range::Bounded(start, end) => start-1..end,
+                    Range::Start(start) => start..main_buffer.len(),
+                    Range::End(end) => 0..end,
+                    Range::Single(line) => line-1..line,
+                    Range::None => current_line-1..current_line,
+                };
 
-            Delete(Some((start, end))) => {
-                is_saved = false;
-                current_line = start-1;
-                if let Some(end) = end {
-                    if start == end {
-                        main_buffer.remove(start-1);
-                        continue;
-                    }
-                    main_buffer.splice(start-1..end, Vec::new());
-                    continue;
-                } 
+                current_line -= normalize_curr_line(&range, current_line);
 
-                main_buffer.splice(start-1.., Vec::new());
-            },
-
-            Delete(None) => {
-                main_buffer.remove(current_line-1);
-                current_line -= 1;
+                main_buffer.splice(range, Vec::new());
                 is_saved = false;
             },
 
-            Line => {
-                println!("{}", current_line);
-            },
+            Change(range, change) => {
+                let range = match range {
+                    Range::Bounded(start, end) => start-1..end,
+                    Range::Start(start) => start..main_buffer.len(),
+                    Range::End(end) => 0..end,
+                    Range::Single(line) => line-1..line,
+                    Range::None => current_line-1..current_line,
+                };
+                
+                current_line -= normalize_curr_line(&range, current_line);
+
+                let lines = match change {
+                    Some(change) => vec![change],
+                    None => get_from_prompt(&mut tty),
+                };
+
+                current_line += lines.len();
+                main_buffer.splice(range, lines);
+                is_saved = false;
+            }
         }
     }
+}
+
+fn get_from_prompt(tty: &mut BufReader<File>) -> Vec<String> {
+    let mut buffer = Vec::new();
+    loop {
+        let line = get_line_from(tty);
+        if line == ".\n" { break; }
+        buffer.push(line);
+    } buffer
+}
+
+fn normalize_curr_line(range: &std::ops::Range<usize>, current: usize) -> usize {
+    if range.start < current {
+        return range.end - range.start;
+    } 0
 }
 
 fn write_file(filename: &str, buffer: &[String]) {
